@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SECURE_COOKIE = BASE_URL.startsWith('https://');
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), 'public');
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8;
-const LOGIN_TTL_MS = 1000 * 60 * 10; // anonymous sessions only live for the OAuth round trip
+const STATE_TTL_S = 60 * 10; // the OAuth round trip must finish within 10 minutes
 const MAX_SESSIONS = 50_000;
 // repo: read private repos + archive, delete_repo: delete repos
 const OAUTH_SCOPE = 'repo delete_repo read:user';
@@ -48,35 +48,46 @@ function parseCookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    try {
+      out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    } catch {
+      // skip malformed cookie values instead of failing the whole request
+    }
   }
   return out;
 }
 
-function getSession(req, res, create = false) {
+function getSession(req) {
   const id = parseCookies(req).sop_sid;
-  const existing = id && sessions.get(id);
-  if (existing && existing.expires > Date.now()) {
-    if (existing.token) existing.expires = Date.now() + SESSION_TTL_MS;
-    return existing;
-  }
-  if (!create) return null;
-  if (sessions.size >= MAX_SESSIONS) return null;
-  const newId = randomBytes(32).toString('hex');
-  const session = { expires: Date.now() + LOGIN_TTL_MS };
-  sessions.set(newId, session);
-  res.setHeader('Set-Cookie', cookie('sop_sid', newId, SESSION_TTL_MS / 1000));
+  const session = id && sessions.get(id);
+  if (!session || session.expires <= Date.now()) return null;
+  session.expires = Date.now() + SESSION_TTL_MS;
   return session;
 }
 
-// New session id after login so a pre-set cookie can never be reused (session fixation)
-function rotateSession(req, res, session) {
+// Sessions are only created after a successful GitHub login, so anonymous
+// requests can never fill the session store. A fresh id is issued every time
+// (no session fixation) and any previous session of this browser is dropped.
+function createSession(req, data) {
   const oldId = parseCookies(req).sop_sid;
   if (oldId) sessions.delete(oldId);
-  const newId = randomBytes(32).toString('hex');
-  session.expires = Date.now() + SESSION_TTL_MS;
-  sessions.set(newId, session);
-  res.setHeader('Set-Cookie', cookie('sop_sid', newId, SESSION_TTL_MS / 1000));
+  if (sessions.size >= MAX_SESSIONS) evictOldestSession();
+  const id = randomBytes(32).toString('hex');
+  sessions.set(id, { ...data, expires: Date.now() + SESSION_TTL_MS });
+  return cookie('sop_sid', id, SESSION_TTL_MS / 1000);
+}
+
+function evictOldestSession() {
+  // Map keeps insertion order, so the first entry is the oldest session
+  const oldest = sessions.keys().next().value;
+  if (oldest) sessions.delete(oldest);
+}
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && timingSafeEqual(x, y);
 }
 
 function cookie(name, value, maxAge) {
@@ -151,12 +162,12 @@ async function revokeToken(token) {
 
 async function fetchAllRepos(token) {
   const repos = [];
-  for (let page = 1; page <= 30; page++) {
+  for (let page = 1; ; page++) {
     const r = await github(token, `/user/repos?affiliation=owner&per_page=100&page=${page}&sort=pushed&direction=asc`);
     if (!r.ok) throw Object.assign(new Error(`GitHub ${r.status}`), { status: r.status });
     const batch = await r.json();
     repos.push(...batch);
-    if (batch.length < 100) break;
+    if (batch.length === 0 || !/\brel="next"/.test(r.headers.get('link') || '')) break;
   }
   return repos.map((repo) => ({
     id: repo.id,
@@ -198,7 +209,7 @@ async function sendGithubError(res, r, fallback) {
 const REPO_PATH = /^\/api\/repos\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)(\/archive)?$/;
 
 async function handleApi(req, res, url) {
-  const session = getSession(req, res);
+  const session = getSession(req);
 
   if (url.pathname === '/api/me') {
     if (!session?.token) return sendJson(res, 401, { error: 'not_authenticated' });
@@ -242,24 +253,27 @@ async function handleApi(req, res, url) {
 
 async function handleAuth(req, res, url) {
   if (url.pathname === '/auth/login') {
-    const session = getSession(req, res, true);
-    if (!session) return sendJson(res, 503, { error: 'Too many sessions, try again later' });
-    session.state = randomBytes(16).toString('hex');
+    // The OAuth state lives in a short-lived HttpOnly cookie, nothing is stored server side
+    const state = randomBytes(16).toString('hex');
+    res.setHeader('Set-Cookie', cookie('sop_state', state, STATE_TTL_S));
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       redirect_uri: `${BASE_URL}/auth/callback`,
       scope: OAUTH_SCOPE,
-      state: session.state,
+      state,
       allow_signup: 'false',
     });
     return redirect(res, `https://github.com/login/oauth/authorize?${params}`);
   }
 
   if (url.pathname === '/auth/callback') {
-    const session = getSession(req, res);
     const { code, state } = Object.fromEntries(url.searchParams);
-    if (!session || !code || !state || state !== session.state) return redirect(res, '/?error=state');
-    delete session.state;
+    const expectedState = parseCookies(req).sop_state;
+    const clearState = cookie('sop_state', '', 0);
+    if (!code || !state || !expectedState || !safeEqual(state, expectedState)) {
+      res.setHeader('Set-Cookie', clearState);
+      return redirect(res, '/?error=state');
+    }
 
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -272,21 +286,29 @@ async function handleAuth(req, res, url) {
       }),
     });
     const tokenData = await tokenRes.json().catch(() => ({}));
-    if (!tokenData.access_token) return redirect(res, '/?error=token');
+    if (!tokenData.access_token) {
+      res.setHeader('Set-Cookie', clearState);
+      return redirect(res, '/?error=token');
+    }
 
     const userRes = await github(tokenData.access_token, '/user');
-    if (!userRes.ok) return redirect(res, '/?error=user');
+    if (!userRes.ok) {
+      res.setHeader('Set-Cookie', clearState);
+      return redirect(res, '/?error=user');
+    }
     const user = await userRes.json();
 
-    session.token = tokenData.access_token;
-    session.user = { login: user.login, name: user.name, avatar_url: user.avatar_url, html_url: user.html_url };
-    rotateSession(req, res, session);
+    const sessionCookie = createSession(req, {
+      token: tokenData.access_token,
+      user: { login: user.login, name: user.name, avatar_url: user.avatar_url, html_url: user.html_url },
+    });
+    res.setHeader('Set-Cookie', [sessionCookie, clearState]);
     return redirect(res, '/');
   }
 
   if (url.pathname === '/auth/logout' && req.method === 'POST') {
     if (!isTrustedMutation(req)) return sendJson(res, 403, { error: 'forbidden' });
-    const session = getSession(req, res);
+    const session = getSession(req);
     if (session?.token) await revokeToken(session.token);
     destroySession(req, res);
     return sendJson(res, 200, { ok: true });

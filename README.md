@@ -126,7 +126,7 @@ Only repos **owned by you** are listed and can be changed. Organization repos ar
 Deleting repos is serious, so the app is built defensively:
 
 - The OAuth token **never reaches the browser**. It lives in a server side session referenced by a random `HttpOnly`, `SameSite=Lax` cookie (`Secure` on HTTPS).
-- The OAuth `state` parameter protects the login flow against CSRF, and the session id is **rotated after login** to prevent session fixation.
+- The OAuth `state` parameter (kept in a short lived `HttpOnly` cookie) protects the login flow against CSRF. Server side sessions are **only created after a successful login** with a fresh id, so anonymous visitors can't fill the session store and session fixation is impossible.
 - Every mutating request requires a custom `X-Requested-With` header and a matching `Origin`, so other sites cannot trigger archive or delete calls.
 - The server only allows archive and delete for repos whose owner is the signed in user.
 - On sign out the token is **revoked on GitHub**, not just forgotten.

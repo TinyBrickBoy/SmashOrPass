@@ -95,6 +95,8 @@ async function boot() {
 }
 
 async function loadRepos() {
+  state.repos = [];
+  updateFilterCount();
   $('#repo-count').textContent = 'Loading repos…';
   try {
     state.repos = await api('/api/repos');
@@ -249,10 +251,10 @@ function attachDrag(card) {
     smash.style.opacity = Math.max(0, Math.min(1, dx / 100));
     pass.style.opacity = Math.max(0, Math.min(1, -dx / 100));
   });
-  const end = () => {
+  const end = (e) => {
     if (!dragging) return;
     dragging = false;
-    if (Math.abs(dx) > 110) return decide(dx > 0 ? 'smash' : 'pass');
+    if (e.type === 'pointerup' && Math.abs(dx) > 110) return decide(dx > 0 ? 'smash' : 'pass');
     card.classList.remove('dragging');
     card.style.transform = '';
     smash.style.opacity = pass.style.opacity = '0';
@@ -303,7 +305,8 @@ function renderReview() {
       b.setAttribute('aria-pressed', String(current === act));
       b.addEventListener('click', () => {
         state.actions.set(repo.full_name, act);
-        renderReview();
+        for (const other of seg.children) other.setAttribute('aria-pressed', String(other === b));
+        updateSummary();
       });
       seg.append(b);
     }
@@ -378,6 +381,8 @@ $('#btn-execute').addEventListener('click', async () => {
   show('done');
   const list = $('#result-list');
   list.replaceChildren();
+  const restart = $('#btn-restart');
+  restart.disabled = true;
 
   for (const { repo, act } of todo) {
     const status = el('span', { className: 'status', textContent: act === 'delete' ? 'deleting…' : 'archiving…' });
@@ -393,6 +398,7 @@ $('#btn-execute').addEventListener('click', async () => {
       status.classList.add('fail');
     }
   }
+  restart.disabled = false;
 });
 
 $('#btn-restart').addEventListener('click', async () => {
@@ -401,8 +407,16 @@ $('#btn-restart').addEventListener('click', async () => {
 });
 
 $('#logout').addEventListener('click', async () => {
-  await api('/auth/logout', { method: 'POST' }).catch(() => {});
-  location.href = '/';
+  const btn = $('#logout');
+  btn.disabled = true;
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    location.href = '/';
+  } catch (err) {
+    if (err.message === 'Not signed in') return void (location.href = '/');
+    btn.disabled = false;
+    alert(`Sign out failed: ${err.message}. Please try again.`);
+  }
 });
 
 boot();
