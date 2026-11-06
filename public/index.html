@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smash or Pass · Repo Cleanup</title>
+  <meta name="description" content="Clean up your old GitHub repos: smash to keep, pass to archive or delete.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">S<span>/</span>P</span>
+      <span class="brand-text">Smash or Pass</span>
+    </a>
+    <div id="userbox" class="userbox" hidden>
+      <img id="avatar" alt="">
+      <span id="login"></span>
+      <button id="logout" class="btn ghost small" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="screen-login" class="screen" hidden>
+      <div class="hero">
+        <p class="eyebrow">Repo cleanup, gamified</p>
+        <h1>Too many dead repos?<br><em>Smash</em> or <em class="pass">Pass</em>.</h1>
+        <p class="lead">Sign in with GitHub and swipe through your repos, oldest first. Smash keeps a repo, pass puts it on the pile to archive or delete. Nothing happens until you confirm at the end.</p>
+        <a class="btn primary big" href="/auth/login">
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Sign in with GitHub
+        </a>
+        <p class="fineprint">Required scopes: <code>repo</code> and <code>delete_repo</code>. GitHub's <code>repo</code> scope grants full access to all your public and private repos (and those of organizations you belong to); this app only uses it to list and archive repos you own. <code>delete_repo</code> is used only for repos you explicitly mark for deletion. Your token stays on the server in your session, is never stored in the browser and is revoked when you sign out.</p>
+        <p id="login-error" class="error" hidden></p>
+      </div>
+    </section>
+
+    <!-- Setup -->
+    <section id="screen-setup" class="screen" hidden>
+      <div class="panel">
+        <h2>Which repos go on the stack?</h2>
+        <p id="repo-count" class="muted">Loading repos…</p>
+        <form id="filters" class="filters">
+          <label class="field">
+            <span>Last push older than</span>
+            <select name="age">
+              <option value="0">any time</option>
+              <option value="3">3 months</option>
+              <option value="6">6 months</option>
+              <option value="12" selected>1 year</option>
+              <option value="24">2 years</option>
+              <option value="36">3 years</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" name="forks" checked> Include forks</label>
+          <label class="check"><input type="checkbox" name="archived"> Include already archived repos</label>
+          <label class="check"><input type="checkbox" name="private" checked> Include private repos</label>
+          <p id="filter-count" class="count"></p>
+          <button class="btn primary big" type="submit">Let's go</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Swipe -->
+    <section id="screen-swipe" class="screen" hidden>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="muted center"></p>
+      <div id="stack" class="stack"></div>
+      <div class="controls">
+        <button id="btn-pass" class="round pass" type="button" title="Pass (←)">
+          <span aria-hidden="true">✕</span><small>Pass</small>
+        </button>
+        <button id="btn-undo" class="round undo" type="button" title="Undo (Backspace)" disabled>
+          <span aria-hidden="true">↶</span><small>Undo</small>
+        </button>
+        <button id="btn-smash" class="round smash" type="button" title="Smash (→)">
+          <span aria-hidden="true">♥</span><small>Smash</small>
+        </button>
+      </div>
+      <p class="muted center hint">Swipe or use the arrow keys ← →. <button id="btn-finish-early" class="link" type="button">Review now</button></p>
+    </section>
+
+    <!-- Review -->
+    <section id="screen-review" class="screen" hidden>
+      <div class="panel wide">
+        <h2>Your pass pile</h2>
+        <p class="muted">Choose what happens to each repo. Archiving can be undone on GitHub, deleting cannot.</p>
+        <div class="bulk">
+          <span>All:</span>
+          <button class="btn ghost small" data-bulk="archive" type="button">Archive</button>
+          <button class="btn ghost small" data-bulk="delete" type="button">Delete</button>
+          <button class="btn ghost small" data-bulk="keep" type="button">Keep after all</button>
+        </div>
+        <ul id="review-list" class="review-list"></ul>
+        <p id="review-empty" class="muted center" hidden>You didn't pass on anything. Your GitHub is already tidy. 🎉</p>
+        <div class="review-footer">
+          <p id="review-summary" class="count"></p>
+          <div class="row">
+            <button id="btn-back-swipe" class="btn ghost" type="button">Keep swiping</button>
+            <button id="btn-execute" class="btn danger" type="button">Apply</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Done -->
+    <section id="screen-done" class="screen" hidden>
+      <div class="panel wide">
+        <h2>All cleaned up.</h2>
+        <ul id="result-list" class="review-list"></ul>
+        <div class="row">
+          <button id="btn-restart" class="btn primary" type="button">Play again</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h3>Are you sure?</h3>
+      <p id="confirm-text"></p>
+      <label id="confirm-type-wrap" class="field" hidden>
+        <span>Type <code id="confirm-word"></code> to confirm</span>
+        <input id="confirm-input" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+        <button id="confirm-ok" value="ok" class="btn danger" type="submit">Yes, apply</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="card-tpl">
+    <article class="card">
+      <div class="stamp stamp-smash">SMASH</div>
+      <div class="stamp stamp-pass">PASS</div>
+      <div class="card-head">
+        <span class="lang-dot"></span>
+        <span class="lang"></span>
+        <span class="badges"></span>
+      </div>
+      <h3 class="card-title"><a target="_blank" rel="noopener noreferrer"></a></h3>
+      <p class="card-desc"></p>
+      <dl class="stats">
+        <div><dt>Last push</dt><dd class="pushed"></dd></div>
+        <div><dt>Created</dt><dd class="created"></dd></div>
+        <div><dt>Stars</dt><dd class="stars"></dd></div>
+        <div><dt>Forks</dt><dd class="forks"></dd></div>
+        <div><dt>Issues</dt><dd class="issues"></dd></div>
+        <div><dt>Size</dt><dd class="size"></dd></div>
+      </dl>
+      <div class="topics"></div>
+      <div class="age-meter"><span></span></div>
+    </article>
+  </template>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
