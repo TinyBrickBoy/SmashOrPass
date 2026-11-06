@@ -7,6 +7,10 @@
 Sign in with GitHub, swipe through your oldest repos and decide:
 **Smash** to keep it, **Pass** to archive or delete it.
 
+### 👉 [Try it now at smashorpass.tinybrickboy.de](https://smashorpass.tinybrickboy.de)
+
+No setup needed. Or [host it yourself](#quick-start) in a few minutes.
+
 ![Swiping a repo](docs/swipe-pass.png)
 
 </div>
@@ -44,6 +48,15 @@ Smash or Pass turns that chore into a quick game.
 | Confirm | Done | Mobile |
 | --- | --- | --- |
 | ![Confirm dialog](docs/confirm.png) | ![Result screen](docs/done.png) | <img src="docs/mobile.png" alt="Mobile view" width="260"> |
+
+## Hosted version
+
+The public instance at **<https://smashorpass.tinybrickboy.de>** runs exactly the code in this repository.
+Just open it, sign in with GitHub and start swiping.
+
+Your GitHub token is only kept in memory on the server for your session and is revoked when you sign out.
+You can also revoke access any time under [GitHub → Settings → Applications](https://github.com/settings/applications).
+If you'd rather not grant a hosted app access to your repos, self hosting takes about five minutes.
 
 ## Quick start
 
