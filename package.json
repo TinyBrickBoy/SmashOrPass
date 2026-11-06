@@ -1,0 +1,15 @@
+{
+  "name": "smash-or-pass",
+  "version": "1.0.0",
+  "description": "Smash or Pass for your old GitHub repos: keep, archive or delete them by swiping.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "license": "MIT"
+}
