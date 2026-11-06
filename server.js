@@ -321,6 +321,7 @@ async function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, BASE_URL);
   try {
+    if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (url.pathname.startsWith('/auth/')) return await handleAuth(req, res, url);
     return await serveStatic(req, res, url);
@@ -333,3 +334,11 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Smash or Pass running on ${BASE_URL}`);
 });
+
+// Shut down cleanly when the container is stopped (Docker sends SIGTERM)
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000).unref();
+  });
+}

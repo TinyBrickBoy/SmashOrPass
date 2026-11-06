@@ -29,6 +29,7 @@ Smash or Pass turns that chore into a quick game.
 - 🛑 **Safe by default.** Passed repos default to *archive* (reversible). Deleting requires typing `delete` to confirm.
 - 📱 **Responsive**, works on phones, and supports dark mode.
 - 🪶 **Zero dependencies.** Plain Node.js server and vanilla JS frontend.
+- 🐳 **Docker ready**, one click deploy on Coolify.
 
 ## Screenshots
 
@@ -135,9 +136,42 @@ Deleting repos is serious, so the app is built defensively:
 
 Found a vulnerability? Please read [SECURITY.md](SECURITY.md) and report it privately instead of opening a public issue.
 
+## Deploy with Docker / Coolify
+
+The repo ships a small `Dockerfile` (Node 22 Alpine, runs as non root user, built in healthcheck on `/healthz`).
+
+### Coolify
+
+1. **Create a GitHub OAuth App** like in the quick start, but with your real domain:
+   - Homepage URL: `https://smash.example.com`
+   - Authorization callback URL: `https://smash.example.com/auth/callback`
+2. In Coolify: **New Resource → Public/Private Repository**, pick this repo and choose **Dockerfile** as build pack.
+3. Set **Ports Exposes** to `3000` and add your domain (`https://smash.example.com`).
+4. Add the **environment variables**:
+
+   | Variable | Value |
+   | --- | --- |
+   | `GITHUB_CLIENT_ID` | your Client ID |
+   | `GITHUB_CLIENT_SECRET` | your Client secret (mark it as secret) |
+   | `BASE_URL` | `https://smash.example.com` |
+
+5. **Deploy.** Coolify picks up the healthcheck from the Dockerfile automatically.
+
+> `BASE_URL` must exactly match the domain in your browser and in the OAuth App, otherwise login and the CSRF origin check fail.
+
+### Plain Docker
+
+```bash
+docker build -t smash-or-pass .
+```
+
+```bash
+docker run -d -p 3000:3000 -e GITHUB_CLIENT_ID=... -e GITHUB_CLIENT_SECRET=... -e BASE_URL=http://localhost:3000 smash-or-pass
+```
+
 ### Deployment notes
 
-- Sessions are kept **in memory**. Restarting the server signs everyone out, and running several instances needs sticky sessions or a shared store.
+- Sessions are kept **in memory**. Restarting the server (or redeploying the container) signs everyone out, and running several instances needs sticky sessions or a shared store.
 - Always run behind **HTTPS** in production and set `BASE_URL` to the `https://` URL.
 - Sessions expire after 8 hours of inactivity.
 
